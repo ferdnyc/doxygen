@@ -100,11 +100,29 @@ jobs:
         sudo apt-get install texlive texlive-latex-recommended texlive-extra-utils texlive-latex-extra texlive-font-utils
       if: startsWith(matrix.config.os,'ubuntu-')
 
+    - name: Install GhostScript & Poppler (macOS)
+      run: |
+        brew update
+        brew install --overwrite ghostscript poppler
+      if: startsWith(matrix.config.os,'macos-')
+
     - name: Install LaTeX (MacOS)
       run: |
         brew update
-        brew install --cask mactex;
+        brew install --overwrite --cask basictex
         echo "/Library/TeX/texbin/" >> $GITHUB_PATH
+      if: startsWith(matrix.config.os,'macos-')
+
+    - name: Install LaTeX Packages (macOS)
+      run: |
+        brew update
+        brew install --cask gpg-suite-no-mail  # For tlmgr signatures
+        sudo tlmgr --update
+        sudo tlmgr install \
+             adjustbox alphalph appendix collectbox dvisvgm enumitem \
+             epstopdf etoc hanging ifoddpage import listofitems \
+             multirow newunicodechar plantuml pdftex regexpatch sectsty \
+             stackengine svg tocloft varwidth wasysym 
       if: matrix.config.os == 'macos-latest'
     
     - name: Install libclang (Ubuntu 20.04)
@@ -210,13 +228,13 @@ jobs:
     - name: Install xmllint (MacOS)
       run: |
          brew update
-         brew install libxml2
+         brew install --overwrite libxml2
       if: matrix.config.os == 'macos-latest'
 
     - name: Install bison (MacOS)
       run: |
         brew update
-        brew install bison;
+        brew install --overwrite bison
         echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
       if: matrix.config.os == 'macos-latest'
     
@@ -234,14 +252,7 @@ jobs:
 
     - name: Install Graphviz (MacOS)
       run: |
-        if ! brew install graphviz; then
-          # Workaround issue with unexpected symlinks: https://github.com/actions/runner-images/issues/6817
-          for f in 2to3 idle3 pydoc3 python3 python3-config; do
-            rm /usr/local/bin/$f || true
-          done
-          # Try again
-          brew install graphviz
-        fi
+        brew install --overwrite graphviz
       if: matrix.config.os == 'macos-latest'
 
     - name: Install Graphviz (Windows)
@@ -282,14 +293,14 @@ jobs:
         echo "=== dvips ===";
         dvips --version
         echo "=== bison ===";
-        bison --version;
+        ${{ matrix.config.os == 'windows-latest' && "win_" || "" }}bison --version;
         echo "=== flex ===";
-        flex --version;
+        ${{ matrix.config.os == 'windows-latest' && "win_" || "" }}flex --version;
         echo "=== dot ===";
         dot -V;
         echo "=== ghostscript ===";
-        gs --version;
-      if: matrix.config.os != 'windows-latest'
+        gs${{ matrix.config.os == 'windows-latest' && "win64c" || "" }} --version;
+        #if: matrix.config.os != 'windows-latest'
 
     - name: Check tool versions (Windows)
       shell: bash
@@ -314,7 +325,7 @@ jobs:
         dot -V;
         echo "=== ghostscript ===";
         gswin64c --version;
-      if: matrix.config.os == 'windows-latest'
+      if: false #matrix.config.os == 'windows-latest'
 
     - name: Configure
       shell: cmake -P {0}
