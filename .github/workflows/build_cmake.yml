@@ -4,38 +4,74 @@ on: [push, pull_request]
 
 jobs:
   build:
+    name: "${{ format('{0} {1} {2}', matrix.os, matrix.compiler, matrix.build_type) }}"
     permissions:
-      contents: write # to push pages branch (peaceiris/actions-gh-pages)
-
-    name: ${{ format('{0} {1} {2}', matrix.config.os, matrix.build_type, matrix.config.cc) }}
-    runs-on: ${{ matrix.config.os }}
-    env:
-      JOB_NAME: ${{ format('{0} {1} {2}', matrix.config.os, matrix.build_type, matrix.config.cc) }}
+      contents: write  # to push pages branch (peaceiris/actions-gh-pages)
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-       build_type: ["Debug", "Release"]
-       config:
-          - { os: ubuntu-20.04, cc: "gcc", cxx: "g++", build_gen: "Unix Makefiles",
-              cmake_extra_opts: "-Dbuild_search=YES -Dbuild_app=YES -Dbuild_parse=YES -Dbuild_xmlparser=YES -Duse_sqlite3=ON",
-              tools: { bison: 'bison', flex: 'flex', gs: 'gs' },
-            }
-          - { os: ubuntu-20.04, cc: "clang", cxx: "clang++", build_gen: "Unix Makefiles",
-              cmake_extra_opts: "-Duse_libclang=YES -Dstatic_libclang=YES -Duse_libc++=NO -Duse_sqlite3=ON",
-              tools: { bison: 'bison', flex: 'flex', gs: 'gs' },
-            }
-          - { os: macos-latest, cc: "clang", cxx: "clang++", build_gen: "Unix Makefiles",
-              tools: { bison: 'bison', flex: 'flex', gs: 'gs' },
-            }
-          - { os: windows-latest, cc: "cl", cxx: "cl", build_gen: "NMake Makefiles",
-              tools: { bison: 'win_bison', flex: 'win_flex', gs: 'gswin64c' },
-              extra_ctest_flags: '--pdf',
-            }
+        build_type: [Debug, Release]
+        os: [ubuntu-20.04, macos-latest, windows-latest]
+        compiler: [GNU, Clang, MSVC]
+        exclude:
+          - os: macos-latest
+            compiler: MSVC
+          - os: macos-latest
+            compiler: GNU
+          - os: windows-latest
+            compiler: Clang
+          - os: windows-latest
+            compiler: GNU
+          - os: ubuntu-20.04
+            compiler: MSVC
+    env:
+      JOB_NAME: "${{ format('{0} {1} {2}', matrix.os, matrix.compiler, matrix.build_type) }}"
+      GCC_CMAKE_ARGS: "-Dbuild_search=YES -Dbuild_app=YES -Dbuild_parse=YES -Dbuild_xmlparser=YES -Duse_sqlite3=ON"
+      CLANG_CMAKE_ARGS: "-Duse_libclang=YES -Dstatic_libclang=YES -Duse_libc++=NO -Duse_sqlite3=ON"
     steps:
     - name: Checkout doxygen
       uses: actions/checkout@v3
       with:
         fetch-depth: 0
+
+    - name: Set up environment
+      shell: bash {0}
+      run: |
+        if [ "x${{ matrix.compiler }}" = "xMSVC" ]; then
+          echo "CXX=cl.exe" >> $GITHUB_ENV
+          echo "CC=cl.exe" >> $GITHUB_ENV
+          echo "BISON=win_bison" >> $GITHUB_ENV
+          echo "FLEX=win_flex" >> $GITHUB_ENV
+          echo "GS=gswin64c" >> $GITHUB_ENV
+          echo "GENERATOR=\"NMake Makefiles\"" >> $GITHUB_ENV
+          echo "EXTRA_CTEST_ARGS=--pdf" >> $GITHUB_ENV
+        else
+          echo "BISON=bison" >> $GITHUB_ENV
+          echo "FLEX=flex" >> $GITHUB_ENV
+          echo "GS=gs" >> $GITHUB_ENV
+          echo "GENERATOR=\"Unix Makefiles\"" >> $GITHUB_ENV
+        fi
+        if [ "x${{ matrix.compiler }}" = "xGNU" ]; then
+          echo "CXX=g++" >> $GITHUB_ENV
+          echo "CC=gcc" >> $GITHUB_ENV
+          if [ "x${{ matrix.os }}" = "xubuntu-20.04" ]; then
+            echo "EXTRA_CMAKE_ARGS=${{ env.GCC_CMAKE_ARGS }}" >> $GITHUB_ENV
+            if [ "x${{ matrix.build_type }}" = "xRelease" ]; then
+              echo "DOCS_PRIMARY=1" >> $GITHUB_ENV
+            fi
+          fi
+        fi
+        if [ "x${{ matrix.compiler }}" = "xClang" ]; then
+          echo "CXX=clang++" >> $GITHUB_ENV
+          echo "CC=clang" >> $GITHUB_ENV
+          if [ "x${{ matrix.os }}" = "xubuntu-20.04" ]; then
+            echo "EXTRA_CMAKE_ARGS=${{ env.CLANG_CMAKE_ARGS }}" >> $GITHUB_ENV
+          fi
+        fi
+
+    - name: Confirm environment
+      run: env
 
 #    - name: Download MikTex (Windows)
 #      if: runner.os == 'windows'
@@ -92,7 +128,7 @@ jobs:
              stackengine svg tocloft varwidth wasysym
 
     - name: Install libclang (Ubuntu 20.04)
-      if: runner.os == 'linux' && matrix.config.cc == 'clang'
+      if: runner.os == 'linux' && matrix.compiler == 'Clang'
       run: |
         sudo apt update
         sudo apt remove llvm-8 clang-8 libclang-common-8-dev clang-format-8 libllvm8
@@ -190,10 +226,10 @@ jobs:
          sudo apt-get install libxml2-utils
 
     - name: Install xmllint (MacOS)
+      if: runner.os == 'macos'
       run: |
          brew update
          brew install --overwrite libxml2
-      if: runner.os == 'macos'
 
     - name: Install bison (MacOS)
       if: runner.os == 'macos'
@@ -258,29 +294,29 @@ jobs:
         echo "=== dvips ===";
         dvips --version
         echo "=== bison ===";
-        ${{ matrix.config.tools.bison }} --version;
+        ${{ env.BISON }} --version;
         echo "=== flex ===";
-        ${{ matrix.config.tools.flex }} --version;
+        ${{ env.FLEX }} --version;
         echo "=== dot ===";
         dot -V;
         echo "=== ghostscript ===";
-        ${{ matrix.config.tools.gs }} --version;
+        ${{ env.GS }} --version;
 
     - name: Configure
       shell: cmake -P {0}
       run: |
-        set(ENV{CC} ${{ matrix.config.cc }})
-        set(ENV{CXX} ${{ matrix.config.cxx }})
+        set(ENV{CC} "${{ env.CC }}")
+        set(ENV{CXX} "${{ env.CXX }}")
 
         execute_process(
           COMMAND cmake
             -S .
             -B build
             -D CMAKE_BUILD_TYPE=${{ matrix.build_type }}
-            -G "${{ matrix.config.build_gen }}"
+            -G ${{ env.GENERATOR }}
             -Dbuild_doc=YES
             -Dbuild_wizard=YES
-            ${{ matrix.config.cmake_extra_opts }}
+            ${{ env.EXTRA_CMAKE_ARGS }}
           RESULT_VARIABLE result
         )
         if (NOT result EQUAL 0)
@@ -320,7 +356,7 @@ jobs:
         execute_process(
           COMMAND
             cmake --build build --target tests
-            TEST_FLAGS="--xml --xmlxsd --xhtml --qhp --docbook --rtf ${{ matrix.config.extra_ctest_flags }}"
+            TEST_FLAGS="--xml --xmlxsd --xhtml --qhp --docbook --rtf ${{ env.EXTRA_CTEST_ARGS }}"
           RESULT_VARIABLE result)
 
         if (NOT result EQUAL 0)
@@ -328,7 +364,7 @@ jobs:
         endif()
 
     - name: Generate documentation
-      if: runner.os == 'linux' && matrix.build_type == 'release' && matrix.config.cc == 'gcc'
+      if: env.DOCS_PRIMARY
       shell: cmake -P {0}
       run: |
         execute_process(
@@ -340,7 +376,7 @@ jobs:
         endif()
 
     - name: Archive html documentation artifacts
-      if: runner.os == 'linux' && matrix.build_type == 'release' && matrix.config.cc == 'gcc'
+      if: env.DOCS_PRIMARY
       uses: actions/upload-artifact@v3
       with:
         name: "Html documentation artifacts"
@@ -348,14 +384,14 @@ jobs:
 
 
     - name: Archive Latex documentation artifacts
-      if: runner.os == 'linux' && matrix.build_type == 'release' && matrix.config.cc == 'gcc'
+      if: env.DOCS_PRIMARY
       uses: actions/upload-artifact@v3
       with:
         name: "Latex documentation artifacts"
         path: build/latex/doxygen_manual.pdf
 
     - name: Generate Internal documentation
-      if: runner.os == 'linux' && matrix.build_type == 'release' && matrix.config.cc == 'gcc'
+      if: env.DOCS_PRIMARY
       shell: cmake -P {0}
       run: |
         execute_process(
@@ -367,8 +403,9 @@ jobs:
         endif()
 
     - name: Publish Internal documentation to Github pages
-      if: github.event_name == 'push' && runner.os == 'linux' && matrix.build_type == 'release' && matrix.config.cc == 'gcc'
+      if: ${{ github.event_name == 'push' && env.DOCS_PRIMARY }}
       uses: peaceiris/actions-gh-pages@v3
       with:
          github_token: ${{ secrets.GITHUB_TOKEN }}
          publish_dir: build/doxygen_docs/html
+
